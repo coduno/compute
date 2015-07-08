@@ -3,10 +3,15 @@ package main
 import (
 	"bytes"
 	"encoding/json"
+	"fmt"
 	"io"
+	"io/ioutil"
 	"log"
 	"os"
 	"os/exec"
+	"os/user"
+	"path"
+	"sync"
 	"syscall"
 	"time"
 
@@ -14,14 +19,12 @@ import (
 	"golang.org/x/oauth2"
 	"golang.org/x/oauth2/google"
 
-	"io/ioutil"
-
 	"google.golang.org/cloud"
 	"google.golang.org/cloud/datastore"
 )
 
-// BuildData is used to represent general data for a single invokation of
-// a coduno build
+// BuildData is used to represent general data for a single invocation of
+// a Coduno build
 type BuildData struct {
 	Challenge string
 	User      string
@@ -31,8 +34,8 @@ type BuildData struct {
 	EndTime   time.Time
 }
 
-// LogData is used to represent accumulated log data of a single invokation of
-// a coduno build
+// LogData is used to represent accumulated log data of a single invocation of
+// a Coduno build
 type LogData struct {
 	InLog      string `datastore:",noindex"`
 	OutLog     string `datastore:",noindex"`
@@ -41,20 +44,38 @@ type LogData struct {
 	SysUsage   syscall.Rusage
 }
 
-var signal = make(chan int)
+// PipeStatus holds the satus of a buffered pipe.
+// It tells how many bytes have been read from the source,
+// wrote to the destination and were buffered.
+type PipeStatus struct {
+	Read,
+	Wrote,
+	Buffered int
+
+	ReadError,
+	WriteError,
+	BufferError error
+}
+
+const buildKind = "builds"
+
 var ctx context.Context
 
 func init() {
-	err := error(nil)
-	home := os.Getenv("HOME")
-	secret, err := ioutil.ReadFile(home + "/config/secret.json")
+	user, err := user.Current()
 	if err != nil {
-		log.Panic(err)
+		panic(err)
 	}
-	config, err := google.JWTConfigFromJSON(secret, datastore.ScopeDatastore,
-		datastore.ScopeUserEmail)
+
+	fileName := path.Join(user.HomeDir, "config", "secret.json")
+	secret, err := ioutil.ReadFile(fileName)
 	if err != nil {
-		log.Panic(err)
+		panic(err)
+	}
+
+	config, err := google.JWTConfigFromJSON(secret, datastore.ScopeDatastore, datastore.ScopeUserEmail)
+	if err != nil {
+		panic(err)
 	}
 
 	ctx = cloud.NewContext("coduno", config.Client(oauth2.NoContext))
@@ -62,93 +83,85 @@ func init() {
 
 // LogBuildStart sends info to the datastore, informing that a new build
 // started
-func LogBuildStart(repo string, commit string, user string) (*datastore.Key,
-	*BuildData) {
-	key := datastore.NewIncompleteKey(ctx, "testrun", nil)
-	build := &BuildData{
-		Commit:    commit,
-		Challenge: repo,
-		User:      user,
-		StartTime: time.Now(),
-		Status:    "Started",
-	}
+func LogBuildStart(repo string, commit string, user string) (*datastore.Key, *BuildData) {
+	key := datastore.NewIncompleteKey(ctx, buildKind, nil)
+	build := &BuildData{repo, user, commit, "started", time.Now(), time.Unix(0, 0)}
+
 	key, err := datastore.Put(ctx, key, build)
 	if err != nil {
-		log.Panic(err)
+		fmt.Fprintf(os.Stderr, "LogBuildStart: %v", err)
 	}
 	return key, build
 }
 
 // LogRunComplete logs the end of a completed (failed of finished) run of
 // a coduno testrun
-func LogRunComplete(pKey *datastore.Key, build *BuildData, in string,
-	out string, extra string, exit error, prepLog string, stats syscall.Rusage) {
+func LogRunComplete(pKey *datastore.Key, build *BuildData, in,
+	out, extra string, exit error, prepLog string, stats syscall.Rusage) {
 	tx, err := datastore.NewTransaction(ctx)
 	if err != nil {
-		log.Panic(err)
+		fmt.Fprintf(os.Stderr, "LogRunComplete: Could not get transaction!")
 	}
 	build.EndTime = time.Now()
 	if exit != nil {
-		build.Status = "FAILED"
+		build.Status = "failed"
 	} else {
-		build.Status = "DONE"
+		build.Status = "good"
 	}
 	_, err = tx.Put(pKey, build)
 	if err != nil {
-		log.Panic(err)
-		err = tx.Rollback()
-		if err != nil {
-			log.Panic(err)
-		}
+		fmt.Fprintf(os.Stderr, "LogRunComplete: Putting build failed!")
+		tx.Rollback()
+		return
 	}
-	data := &LogData{
-		InLog:      in,
-		OutLog:     out,
-		ExtraLog:   extra,
-		PrepareLog: prepLog,
-		SysUsage:   stats,
-	}
-	k := datastore.NewIncompleteKey(ctx, "testrun", pKey)
+	data := &LogData{in, out, extra, prepLog, stats}
+	k := datastore.NewIncompleteKey(ctx, buildKind, pKey)
 	_, err = tx.Put(k, data)
 	if err != nil {
-		log.Panic(err)
-		err = tx.Rollback()
-		if err != nil {
-			log.Panic(err)
-		}
+		fmt.Fprintf(os.Stderr, "LogRunComplete: Putting data failed!")
+		tx.Rollback()
+		return
 	}
-	_, err = tx.Commit()
-	if err != nil {
-		log.Panic(err)
-	}
+	tx.Commit()
 }
 
-func sendSig() {
-	signal <- 1
-}
+func pipeOutput(wg *sync.WaitGroup, rc io.ReadCloser, w io.Writer, buf *bytes.Buffer) (parent chan<- PipeStatus) {
+	defer wg.Done()
+	// if we have no rc we cannot do anything, because
+	// that's where the data come from
+	if rc == nil {
+		return
+	}
+	defer rc.Close()
 
-func pipeOutput(out io.ReadCloser, dest io.Writer, logBuf *bytes.Buffer) {
-	tempBuf := make([]byte, 1024)
-	writeErr := error(nil)
-	r, readErr := int(0), error(nil)
+	s := PipeStatus{}
 
-	defer out.Close()
-	defer sendSig()
+	tmp := make([]byte, 1024)
 
-	for readErr == nil {
-		r, readErr = out.Read(tempBuf)
+	// to count how many bytes we read/write/buffer on
+	// every loop
+	var cR, cW, cB int
 
-		if logBuf != nil {
-			logBuf.Write(tempBuf[0:r])
+	for s.ReadError == nil && (s.WriteError == nil || s.BufferError == nil) {
+		cR, s.ReadError = rc.Read(tmp)
+		s.Read += cR
+
+		if cR == 0 {
+			continue
 		}
 
-		if dest != nil && r != 0 && writeErr == nil {
-			_, writeErr := dest.Write(tempBuf[0:r])
-			if writeErr != nil {
-				log.Print(writeErr)
-			}
+		if buf != nil && s.BufferError == nil {
+			cB, s.BufferError = buf.Write(tmp[0:cR])
+			s.Buffered += cB
+		}
+
+		if w != nil && s.WriteError == nil {
+			cW, s.WriteError = w.Write(tmp[0:cR])
+			s.Wrote += cW
 		}
 	}
+	parent <- s
+	return
 }
 
 func main() {
@@ -179,6 +192,7 @@ func main() {
 		"-v",
 		testdir+":/run",
 		"coduno/base")
+
 	outUser, err := cmdUser.StdoutPipe()
 	if err != nil {
 		log.Fatal(err)
@@ -204,24 +218,23 @@ func main() {
 		log.Fatal(err)
 	}
 
-	var userToTest bytes.Buffer
-	var testToUser bytes.Buffer
-	var extraBuf bytes.Buffer
+	var userToTest, testToUser, extraBuf bytes.Buffer
 	cmdUser.Start()
 	cmdTest.Start()
-	go pipeOutput(outUser, inTest, &userToTest)
-	go pipeOutput(outTest, inUser, &testToUser)
-	go pipeOutput(errUser, os.Stderr, nil)
-	go pipeOutput(errTest, ioutil.Discard, &extraBuf)
 
-	<-signal
-	<-signal
-	<-signal
-	<-signal
+	var wg sync.WaitGroup
+	wg.Add(4)
+
+	go pipeOutput(&wg, outUser, inTest, &userToTest)
+	go pipeOutput(&wg, outTest, inUser, &testToUser)
+	go pipeOutput(&wg, errUser, os.Stderr, nil)
+	go pipeOutput(&wg, errTest, nil, &extraBuf)
+
 	exitErr := cmdUser.Wait()
+	wg.Wait()
 
 	prepLog, err := ioutil.ReadFile(tmpdir + "/prepare.log")
-	if err != nil { // This file should always exist, so an error here should never happen
+	if err != nil {
 		log.Fatal(err)
 	}
 
