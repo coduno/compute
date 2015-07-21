@@ -57,34 +57,34 @@ func startSimpleRun(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Language not available.", http.StatusBadRequest)
 
 LANGUAGE_AVAILABLE:
-	tempDir, err := prepareFilesForDockerRun(codeData.Language, codeData.CodeBase)
+	tempDir, err := prepareFilesForDockerRun(&codeData)
 
 	if err != nil {
 		http.Error(w, "File preparation error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	prepareAndSimpleRun(w, r, tempDir, codeData.CodeBase)
+	prepareAndSimpleRun(w, r, tempDir, &codeData)
 }
 
-func prepareFilesForDockerRun(lang, codeBase string) (tempDir string, err error) {
+func prepareFilesForDockerRun(codeData *models.CodeData) (tempDir string, err error) {
 	tempDir, err = volumeDir()
 	if err != nil {
 		return
 	}
-	err = createConfigurationFile(tempDir, lang)
+	err = createConfigurationFile(tempDir, codeData.Language)
 	if err != nil {
 		return
 	}
-	err = createExecFile(tempDir, lang, codeBase)
+	err = createExecFile(tempDir, codeData)
 	if err != nil {
 		return
 	}
 	return tempDir, nil
 }
 
-func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir, codeBase string) {
-	key, build := LogBuildStart("challengeId", codeBase, "user")
+func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir string, codeData *models.CodeData) {
+	key, build := LogBuildStart("challengeId", codeData.CodeBase, "user")
 
 	volume, err := dockerize(tempDir)
 
@@ -153,12 +153,12 @@ func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir, codeBa
 	w.Write(json)
 }
 
-func createExecFile(tmpDir, lang, codeBase string) (err error) {
-	f, err := os.Create(path.Join(tmpDir, fileNames[lang]))
+func createExecFile(tmpDir string, codeData *models.CodeData) (err error) {
+	f, err := os.Create(path.Join(tmpDir, fileNames[codeData.Language]))
 	if err != nil {
 		return
 	}
-	f.WriteString(codeBase)
+	f.WriteString(codeData.CodeBase)
 	f.Close()
 	return
 }
