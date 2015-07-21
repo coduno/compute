@@ -1,14 +1,11 @@
-package main
+package piper
 
 import (
 	"bytes"
-	"encoding/json"
 	"fmt"
 	"io"
 	"io/ioutil"
-	"log"
 	"os"
-	"os/exec"
 	"os/user"
 	"path"
 	"sync"
@@ -83,9 +80,9 @@ func init() {
 
 // LogBuildStart sends info to the datastore, informing that a new build
 // started
-func LogBuildStart(repo string, commit string, user string) (*datastore.Key, *BuildData) {
+func LogBuildStart(challenge string, commit string, user string) (*datastore.Key, *BuildData) {
 	key := datastore.NewIncompleteKey(ctx, buildKind, nil)
-	build := &BuildData{repo, user, commit, "started", time.Now(), time.Unix(0, 0)}
+	build := &BuildData{challenge, user, commit, "started", time.Now(), time.Unix(0, 0)}
 
 	key, err := datastore.Put(ctx, key, build)
 	if err != nil {
@@ -125,7 +122,8 @@ func LogRunComplete(pKey *datastore.Key, build *BuildData, in,
 	tx.Commit()
 }
 
-func pipeOutput(wg *sync.WaitGroup, rc io.ReadCloser, w io.Writer, buf *bytes.Buffer) (parent chan<- PipeStatus) {
+// PipeOutput links the rc to writer w we pass and also writes to buf if it is not null
+func PipeOutput(wg *sync.WaitGroup, rc io.ReadCloser, w io.Writer, buf *bytes.Buffer) (s PipeStatus) {
 	defer wg.Done()
 	// if we have no rc we cannot do anything, because
 	// that's where the data come from
@@ -133,8 +131,6 @@ func pipeOutput(wg *sync.WaitGroup, rc io.ReadCloser, w io.Writer, buf *bytes.Bu
 		return
 	}
 	defer rc.Close()
-
-	s := PipeStatus{}
 
 	tmp := make([]byte, 1024)
 
@@ -160,94 +156,5 @@ func pipeOutput(wg *sync.WaitGroup, rc io.ReadCloser, w io.Writer, buf *bytes.Bu
 			s.Wrote += cW
 		}
 	}
-	parent <- s
 	return
-}
-
-func main() {
-	if len(os.Args) != 6 {
-		log.Fatal(os.Args)
-	}
-
-	username := os.Args[1]
-	repo := os.Args[2]
-	commit := os.Args[3]
-	tmpdir := os.Args[4]
-	testdir := os.Args[5]
-
-	key, build := LogBuildStart(repo, commit, username)
-	cmdUser := exec.Command(
-		"sudo",
-		"docker",
-		"run",
-		"--rm",
-		"-v",
-		tmpdir+":/run",
-		"coduno/base")
-	cmdTest := exec.Command(
-		"sudo",
-		"docker",
-		"run",
-		"--rm",
-		"-v",
-		testdir+":/run",
-		"coduno/base")
-
-	outUser, err := cmdUser.StdoutPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	errUser, err := cmdUser.StderrPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	inUser, err := cmdUser.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	outTest, err := cmdTest.StdoutPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	errTest, err := cmdTest.StderrPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	inTest, err := cmdTest.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var userToTest, testToUser, extraBuf bytes.Buffer
-	cmdUser.Start()
-	cmdTest.Start()
-
-	var wg sync.WaitGroup
-	wg.Add(4)
-
-	go pipeOutput(&wg, outUser, inTest, &userToTest)
-	go pipeOutput(&wg, outTest, inUser, &testToUser)
-	go pipeOutput(&wg, errUser, os.Stderr, nil)
-	go pipeOutput(&wg, errTest, nil, &extraBuf)
-
-	exitErr := cmdUser.Wait()
-	wg.Wait()
-
-	prepLog, err := ioutil.ReadFile(tmpdir + "/prepare.log")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var stats syscall.Rusage
-	statsData, err := ioutil.ReadFile(tmpdir + "/stats.log")
-	if err != nil {
-		log.Print(err)
-	} else {
-		err = json.Unmarshal(statsData, &stats)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	LogRunComplete(key, build, testToUser.String(), userToTest.String(), extraBuf.String(), exitErr, string(prepLog), stats)
 }
