@@ -84,7 +84,7 @@ func prepareFilesForDockerRun(lang, codeBase string) (tempDir string, err error)
 }
 
 func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir, codeBase string) {
-	key, build := piper.LogBuildStart("challengeId", codeBase, "user")
+	key, build := LogBuildStart("challengeId", codeBase, "user")
 
 	volume, err := dockerize(tempDir)
 
@@ -118,8 +118,8 @@ func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir, codeBa
 	var wg sync.WaitGroup
 	wg.Add(2)
 
-	go piper.PipeOutput(&wg, outUser, os.Stdout, &runOutput)
-	go piper.PipeOutput(&wg, errUser, os.Stdout, &runErr)
+	go PipeOutput(&wg, outUser, os.Stdout, &runOutput)
+	go PipeOutput(&wg, errUser, os.Stdout, &runErr)
 
 	exitErr := cmdUser.Wait()
 	wg.Wait()
@@ -139,7 +139,7 @@ func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir, codeBa
 		}
 	}
 
-	piper.LogRunComplete(key, build, "", runOutput.String(), "", exitErr, string(prepLog), stats)
+	LogRunComplete(key, build, "", runOutput.String(), "", exitErr, string(prepLog), stats)
 
 	var toSend = make(map[string]string)
 	toSend["run"] = runOutput.String()
