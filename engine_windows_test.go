@@ -2,7 +2,7 @@ package main
 
 import "testing"
 
-func TestDockerize(*testing.T) {
+func TestDockerize(t *testing.T) {
 	const expected = "/c/users/Foo"
 
 	var dockerized string
