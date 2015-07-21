@@ -72,10 +72,6 @@ func prepareFilesForDockerRun(codeData *models.CodeData) (tempDir string, err er
 	if err != nil {
 		return
 	}
-	err = createConfigurationFile(tempDir, codeData.Language)
-	if err != nil {
-		return
-	}
 	err = createExecFile(tempDir, codeData)
 	if err != nil {
 		return
@@ -98,7 +94,7 @@ func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir string,
 		"--rm",
 		"-v",
 		volume+":/run",
-		"coduno_all")
+		"coduno/fingerprint-"+codeData.Language)
 
 	outUser, err := cmdUser.StdoutPipe()
 	if err != nil {
@@ -161,11 +157,6 @@ func createExecFile(tmpDir string, codeData *models.CodeData) (err error) {
 	f.WriteString(codeData.CodeBase)
 	f.Close()
 	return
-}
-
-func createConfigurationFile(tempDir, lang string) error {
-	src := path.Join(".", "run_config", lang, "coduno.yaml")
-	return copyFileContents(tempDir, src, configFileName)
 }
 
 // copyFileContents copies the contents of the file named src to the file named
