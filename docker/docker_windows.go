@@ -1,4 +1,4 @@
-package main
+package docker
 
 import (
 	"fmt"
@@ -15,7 +15,7 @@ var currentUser *user.User
 // backslashes) and translates it into a Unix-like
 // path that can be passed to the Docker CLI for
 // volume mounting.
-func dockerize(path string) (result string, err error) {
+func Dockerize(path string) (result string, err error) {
 	if path[0] < 65 || path[0] > 122 || (path[0] > 90 && path[0] < 97) {
 		err = fmt.Errorf("'%s' is not a valid disk designator", path[:1])
 		return
@@ -32,7 +32,8 @@ func dockerize(path string) (result string, err error) {
 	return "/" + string(path[0]|32) + "/" + strings.Replace(path[3:], `\`, `/`, -1), nil
 }
 
-func volumeDir() (string, error) {
+// Returns the temp path created from the home dir
+func VolumeDir() (string, error) {
 	return ioutil.TempDir(path.Join(currentUser.HomeDir, "tmp"), volumePattern)
 }
 
