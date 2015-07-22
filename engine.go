@@ -1,20 +1,16 @@
 package main
 
 import (
-	"bytes"
 	"encoding/json"
-	"io"
 	"io/ioutil"
-	"log"
 	"net/http"
-	"os"
-	"os/exec"
 	"path"
-	"sync"
-	"syscall"
+	"strings"
 
 	"github.com/coduno/app/models"
 	"github.com/coduno/app/util"
+	"github.com/coduno/piper/docker"
+	"github.com/coduno/piper/runner"
 )
 
 var (
@@ -27,26 +23,72 @@ var (
 )
 
 const configFileName string = "coduno.yaml"
-const volumePattern string = "coduno-volume"
 
-func startSimpleRun(w http.ResponseWriter, r *http.Request) {
+// Rudimentary CORS checking. See
+// https://developer.mozilla.org/docs/Web/HTTP/Access_control_CORS
+func cors(w http.ResponseWriter, req *http.Request) {
+	origin := req.Header.Get("Origin")
+
+	// only allow CORS on localhost for development
+	if strings.HasPrefix(origin, "http://localhost") {
+		// The cookie related headers are used for the api requests authentication
+		w.Header().Set("Access-Control-Allow-Methods", "OPTIONS,GET,POST,PUT,DELETE")
+		w.Header().Set("Access-Control-Allow-Headers", "cookie,content-type")
+		w.Header().Set("Access-Control-Allow-Credentials", "true")
+		w.Header().Set("Access-Control-Allow-Origin", origin)
+		if req.Method == "OPTIONS" {
+			w.WriteHeader(200)
+			w.Write([]byte("OK"))
+		}
+	}
+}
+
+func getCodeDataFromRequest(r *http.Request) (codeData models.CodeData, err error) {
+	body, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return
+	}
+	err = json.Unmarshal(body, &codeData)
+	return
+}
+
+func startUnitTestRun(w http.ResponseWriter, r *http.Request) {
 	if !util.CheckMethod(w, r, "POST") {
 		return
 	}
 
-	body, err := ioutil.ReadAll(r.Body)
-
+	codeData, err := getCodeDataFromRequest(r)
 	if err != nil {
-		http.Error(w, "Error reading: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+	switch codeData.Language {
+	case "javaut":
+		tmpDir, err := docker.VolumeDir()
+		if err != nil {
+			http.Error(w, "Volume preparation error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		err = ioutil.WriteFile(path.Join(tmpDir, "Application.java"), []byte(codeData.CodeBase), 0777)
+		if err != nil {
+			http.Error(w, "File preparation error: "+err.Error(), http.StatusInternalServerError)
+			return
+		}
+		runner.GeneralRun(w, r, tmpDir, &codeData, runner.JavaUnitTest{})
+	default:
+		http.Error(w, "Language not available for unit testing", http.StatusBadRequest)
+	}
+}
+
+func startSimpleRun(w http.ResponseWriter, r *http.Request) {
+	cors(w, r)
+	if !util.CheckMethod(w, r, "POST") {
 		return
 	}
 
-	var codeData models.CodeData
-	err = json.Unmarshal(body, &codeData)
-
+	codeData, err := getCodeDataFromRequest(r)
 	if err != nil {
-		http.Error(w, "Cannot unmarshal: "+err.Error(), http.StatusInternalServerError)
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	for availableLanguage := range fileNames {
@@ -57,136 +99,21 @@ func startSimpleRun(w http.ResponseWriter, r *http.Request) {
 	http.Error(w, "Language not available.", http.StatusBadRequest)
 
 LANGUAGE_AVAILABLE:
-	tempDir, err := prepareFilesForDockerRun(&codeData)
-
+	tmpDir, err := docker.VolumeDir()
+	if err != nil {
+		http.Error(w, "Volume preparation error: "+err.Error(), http.StatusInternalServerError)
+		return
+	}
+	err = ioutil.WriteFile(path.Join(tmpDir, fileNames[codeData.Language]), []byte(codeData.CodeBase), 0777)
 	if err != nil {
 		http.Error(w, "File preparation error: "+err.Error(), http.StatusInternalServerError)
 		return
 	}
-
-	prepareAndSimpleRun(w, r, tempDir, &codeData)
-}
-
-func prepareFilesForDockerRun(codeData *models.CodeData) (tempDir string, err error) {
-	tempDir, err = volumeDir()
-	if err != nil {
-		return
-	}
-	err = createExecFile(tempDir, codeData)
-	if err != nil {
-		return
-	}
-	return tempDir, nil
-}
-
-func prepareAndSimpleRun(w http.ResponseWriter, r *http.Request, tempDir string, codeData *models.CodeData) {
-	key, build := LogBuildStart("challengeId", codeData.CodeBase, "user")
-
-	volume, err := dockerize(tempDir)
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	cmdUser := exec.Command(
-		"docker",
-		"run",
-		"--rm",
-		"-v",
-		volume+":/run",
-		"coduno/fingerprint-"+codeData.Language)
-
-	outUser, err := cmdUser.StdoutPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	errUser, err := cmdUser.StderrPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-	_, err = cmdUser.StdinPipe()
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var runOutput, runErr bytes.Buffer
-	cmdUser.Start()
-	var wg sync.WaitGroup
-	wg.Add(2)
-
-	go PipeOutput(&wg, outUser, os.Stdout, &runOutput)
-	go PipeOutput(&wg, errUser, os.Stdout, &runErr)
-
-	exitErr := cmdUser.Wait()
-	wg.Wait()
-	prepLog, err := ioutil.ReadFile(tempDir + "/prepare.log")
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	var stats syscall.Rusage
-	statsData, err := ioutil.ReadFile(tempDir + "/stats.log")
-	if err != nil {
-		log.Print(err)
-	} else {
-		err = json.Unmarshal(statsData, &stats)
-		if err != nil {
-			log.Fatal(err)
-		}
-	}
-
-	LogRunComplete(key, build, "", runOutput.String(), "", exitErr, string(prepLog), stats)
-
-	var toSend = make(map[string]string)
-	toSend["run"] = runOutput.String()
-	toSend["err"] = runErr.String()
-
-	json, err := json.Marshal(toSend)
-	if err != nil {
-		http.Error(w, "Json marshal err: "+err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Write(json)
-}
-
-func createExecFile(tmpDir string, codeData *models.CodeData) (err error) {
-	f, err := os.Create(path.Join(tmpDir, fileNames[codeData.Language]))
-	if err != nil {
-		return
-	}
-	f.WriteString(codeData.CodeBase)
-	f.Close()
-	return
-}
-
-// copyFileContents copies the contents of the file named src to the file named
-// by dst. The file will be created if it does not already exist. If the
-// destination file exists, all it's contents will be replaced by the contents
-// of the source file.
-func copyFileContents(dst, src, fileName string) (err error) {
-	in, err := os.Open(src)
-	if err != nil {
-		return
-	}
-	dst = dst + "/" + fileName
-	defer in.Close()
-	out, err := os.Create(dst)
-	if err != nil {
-		return
-	}
-	defer func() {
-		cerr := out.Close()
-		if err == nil {
-			err = cerr
-		}
-	}()
-	if _, err = io.Copy(out, in); err != nil {
-		return
-	}
-	return
+	runner.GeneralRun(w, r, tmpDir, &codeData, runner.SimpleRun{})
 }
 
 func main() {
 	http.HandleFunc("/api/run/start/simple", startSimpleRun)
+	http.HandleFunc("/api/run/start/unittest", startUnitTestRun)
 	http.ListenAndServe(":8081", nil)
 }
