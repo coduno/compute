@@ -1,4 +1,4 @@
-package main
+package docker
 
 import "testing"
 
@@ -6,7 +6,7 @@ func TestDockerize(t *testing.T) {
 	const expected = "/c/users/Foo"
 
 	var dockerized string
-	dockerized, err := dockerize(`C:\users\Foo`)
+	dockerized, err := Dockerize(`C:\users\Foo`)
 
 	if err != nil {
 		t.Error("Unexpected error: ", err)
