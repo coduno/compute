@@ -6,29 +6,31 @@ import (
 )
 
 const volumePattern string = "coduno-volume"
+const imagePattern string = "coduno/fingerprint-"
 
-// DockerCmd holds the cmd to be executed as well as the executed
-// image and the volume from wich it gets data
-type DockerCmd struct {
-	exec.Cmd
-	image,
-	volume string
+// DockerConfig holds the configuration needed for a docker run
+type DockerConfig struct {
+	Image  string
+	TmpDir string
+	Volume string
 }
 
 // NewDockerCmd creates a command for a docker run
-func NewDockerCmd(language, volume string) DockerCmd {
-	image := "coduno/fingerprint-" + language
-	return DockerCmd{
-		*exec.Command(
-			"docker",
-			"run",
-			"--rm",
-			"-v",
-			volume+":/run",
-			image),
-		image,
-		volume,
-	}
+func NewDockerCmd(image, volume string) *exec.Cmd {
+	return exec.Command(
+		"docker",
+		"run",
+		"--rm",
+		"-v",
+		volume+":/run",
+		image)
+
+}
+
+// GetImageForLanguage returns the correct docker image name for a specific
+// language
+func GetImageForLanguage(language string) string {
+	return imagePattern + language
 }
 
 // GetStreams returns the in, out and err streams from a command
