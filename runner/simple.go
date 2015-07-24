@@ -27,11 +27,12 @@ func (srh SimpleRunHandler) Handle(w http.ResponseWriter, r *http.Request) (c do
 			goto LANGUAGE_AVAILABLE
 		}
 	}
+
 	http.Error(w, "language not available", http.StatusBadRequest)
 	return
 
 LANGUAGE_AVAILABLE:
-	c, err = docker.NewConfig(docker.NewImage(codeData.Language))
+	c, err = docker.NewConfig(docker.NewImage(codeData.Language), "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

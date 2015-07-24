@@ -46,7 +46,7 @@ func (jut *JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (
 		return
 	}
 
-	c, err = docker.NewConfig(docker.NewImage(codeData.Language))
+	c, err = docker.NewConfig(docker.NewImage(codeData.Language), "")
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

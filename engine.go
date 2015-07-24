@@ -39,12 +39,11 @@ func cors(w http.ResponseWriter, req *http.Request) {
 	// only allow CORS on localhost for development
 	if strings.HasPrefix(origin, "http://localhost") {
 		// The cookie related headers are used for the api requests authentication
-		w.Header().Set("Access-Control-Allow-Methods", "OPTIONS,GET,POST,PUT,DELETE")
-		w.Header().Set("Access-Control-Allow-Headers", "cookie,content-type")
+		w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, POST, PUT, DELETE, PATCH")
+		w.Header().Set("Access-Control-Allow-Headers", "Cookie, Content-Type")
 		w.Header().Set("Access-Control-Allow-Credentials", "true")
 		w.Header().Set("Access-Control-Allow-Origin", origin)
 		if req.Method == "OPTIONS" {
-			w.WriteHeader(200)
 			w.Write([]byte("OK"))
 		}
 	}

@@ -16,11 +16,14 @@ type Config struct {
 	Volume string
 }
 
-// NewConfig constructs a Config to run the specfied image,
-// automatically taking care of allocating a directory for
-// Volume.
-func NewConfig(image string) (c Config, err error) {
-	volume, err := volumeDir()
+// NewConfig constructs a Config to run the specfied image
+// using the given volume.
+// If volume is left blank, NewConfig will take care of
+// creating a temporary directory.
+func NewConfig(image, volume string) (c Config, err error) {
+	if volume == "" {
+		volume, err = volumeDir()
+	}
 	c = Config{
 		image,
 		volume,
@@ -47,7 +50,6 @@ func (c Config) Run() (r Result, err error) {
 	cmd := exec.Command(
 		"docker",
 		"run",
-		"--rm",
 		"-v",
 		dockerized+":/run",
 		c.Image)
