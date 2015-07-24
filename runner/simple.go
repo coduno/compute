@@ -60,3 +60,8 @@ func (srh SimpleRunHandler) Respond(w http.ResponseWriter, req *http.Request, re
 	}
 	w.Write(json)
 }
+
+func (srh SimpleRunHandler) Prepare(directory string) (c docker.Config) {
+	c, _ = docker.NewConfig("coduno/base", directory)
+	return
+}

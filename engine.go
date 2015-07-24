@@ -1,11 +1,16 @@
 package main
 
 import (
+	"flag"
+	"fmt"
 	"net/http"
+	"os"
 	"strings"
 
 	"github.com/coduno/piper/runner"
 )
+
+var code = flag.String("code", "", "location of submitted code")
 
 func setupRunHandler(rh runner.RunHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -26,6 +31,23 @@ func setupRunHandler(rh runner.RunHandler) http.HandlerFunc {
 }
 
 func main() {
+	flag.Parse()
+
+	if *code != "" {
+		srh := runner.SimpleRunHandler{}
+		config := srh.Prepare(*code)
+
+		_, err := config.Run()
+
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "docker: "+err.Error())
+		}
+	} else {
+		serve()
+	}
+}
+
+func serve() {
 	http.HandleFunc("/api/run/start/simple", setupRunHandler(runner.SimpleRunHandler{}))
 	http.HandleFunc("/api/run/start/unittest", setupRunHandler(&runner.JavaUnitTestHandler{}))
 	http.ListenAndServe(":8081", nil)
