@@ -10,16 +10,18 @@ import (
 func setupRunHandler(rh runner.RunHandler) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		cors(w, r)
-		config, err := rh.Handle(r)
+		config := rh.Handle(w, r)
+
+		// TODO(flowlo): Find out whether Handle completed successfully
+		// to check.
+
+		res, err := config.Run()
 
 		if err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
-			return
+			http.Error(w, "docker: "+err.Error(), http.StatusInternalServerError)
 		}
 
-		results := runner.GeneralRun(w, r, config)
-
-		rh.Respond(w, r, results)
+		rh.Respond(w, r, res)
 	}
 }
 

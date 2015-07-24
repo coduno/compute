@@ -40,35 +40,32 @@ type JavaUnitTestHandler struct {
 
 // Handle function for Java unit tests. It writes the Application.java file in
 //the tmp folder and  returns the docker run configuration
-func (jut *JavaUnitTestHandler) Handle(r *http.Request) (dc docker.DockerConfig, err error) {
+func (jut *JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	// TODO(victorbalan): POST Method check
 
 	codeData, err := getCodeDataFromRequest(r)
 	if err != nil {
-		return
-	}
-	tmpDir, err := docker.VolumeDir()
-	if err != nil {
-		return
-	}
-	err = ioutil.WriteFile(path.Join(tmpDir, "Application.java"), []byte(codeData.CodeBase), 0777)
-	if err != nil {
-		return
-	}
-	volume, err := docker.Dockerize(tmpDir)
-	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	dc.Image = docker.GetImageForLanguage(codeData.Language)
-	dc.TmpDir = tmpDir
-	dc.Volume = volume
-	jut.tmpDir = tmpDir
+	c, err = docker.NewConfig(docker.NewImage(codeData.Language))
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	err = ioutil.WriteFile(path.Join(c.Volume, "Application.java"), []byte(codeData.CodeBase), 0777)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
 	return
 }
 
 // Respond implementation for Java unit tests. Send the JUnit results too.
-func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr RunResults) {
+func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr docker.Result) {
 	testResult, err := ioutil.ReadFile(path.Join(jut.tmpDir, testResultsFileName))
 	if err != nil {
 		log.Print(err)
@@ -77,8 +74,8 @@ func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, 
 	var result UnitTestResult
 	err = xml.Unmarshal(testResult, &result)
 	var toSend = make(map[string]interface{})
-	toSend["run"] = rr.RunOut
-	toSend["err"] = rr.RunErr
+	toSend["run"] = rr.Stdout
+	toSend["err"] = rr.Stderr
 	toSend["tests"] = result
 	json, err := json.Marshal(toSend)
 	if err != nil {

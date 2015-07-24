@@ -15,7 +15,7 @@ var currentUser *user.User
 // backslashes) and translates it into a Unix-like
 // path that can be passed to the Docker CLI for
 // volume mounting.
-func Dockerize(path string) (result string, err error) {
+func dockerize(path string) (result string, err error) {
 	if path[0] < 65 || path[0] > 122 || (path[0] > 90 && path[0] < 97) {
 		err = fmt.Errorf("'%s' is not a valid disk designator", path[:1])
 		return
@@ -33,7 +33,7 @@ func Dockerize(path string) (result string, err error) {
 }
 
 // VolumeDir returns the temp path created from the home dir
-func VolumeDir() (string, error) {
+func volumeDir() (string, error) {
 	return ioutil.TempDir(path.Join(currentUser.HomeDir, "tmp"), volumePattern)
 }
 

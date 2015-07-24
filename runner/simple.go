@@ -2,7 +2,6 @@ package runner
 
 import (
 	"encoding/json"
-	"errors"
 	"io/ioutil"
 	"net/http"
 	"path"
@@ -15,13 +14,13 @@ type SimpleRunHandler struct {
 }
 
 // Handle function for a simple run. It writes the file with code in
-//the tmp folder and  returns the docker run configuration
-func (srh SimpleRunHandler) Handle(r *http.Request) (dc docker.DockerConfig, err error) {
+// the tmp folder and  returns the docker run configuration.
+func (srh SimpleRunHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	// TODO(victorbalan): POST Method check
 
 	codeData, err := getCodeDataFromRequest(r)
 	if err != nil {
-		return
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
 	for availableLanguage := range fileNames {
@@ -29,37 +28,34 @@ func (srh SimpleRunHandler) Handle(r *http.Request) (dc docker.DockerConfig, err
 			goto LANGUAGE_AVAILABLE
 		}
 	}
-	err = errors.New("Language not available.")
+	http.Error(w, "language not available", http.StatusBadRequest)
 	return
 
 LANGUAGE_AVAILABLE:
-	tmpDir, err := docker.VolumeDir()
+	c, err = docker.NewConfig(docker.NewImage(codeData.Language))
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	err = ioutil.WriteFile(path.Join(tmpDir, fileNames[codeData.Language]), []byte(codeData.CodeBase), 0777)
+
+	err = ioutil.WriteFile(path.Join(c.Volume, fileNames[codeData.Language]), []byte(codeData.CodeBase), 0777)
 	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	volume, err := docker.Dockerize(tmpDir)
-	if err != nil {
-		return
-	}
-	dc.TmpDir = tmpDir
-	dc.Volume = volume
-	dc.Image = docker.GetImageForLanguage(codeData.Language)
+
 	return
 }
 
 // Respond implementation for a simple run. It returns the run output and the
 // error output.
-func (srh SimpleRunHandler) Respond(w http.ResponseWriter, r *http.Request, rr RunResults) {
-	var toSend = make(map[string]interface{})
-	toSend["run"] = rr.RunOut
-	toSend["err"] = rr.RunErr
-	json, err := json.Marshal(toSend)
+func (srh SimpleRunHandler) Respond(w http.ResponseWriter, req *http.Request, res docker.Result) {
+	json, err := json.Marshal(map[string]string{
+		"stdout": string(res.Stdout.Bytes()),
+		"stderr": string(res.Stderr.Bytes()),
+	})
 	if err != nil {
-		http.Error(w, "Json marshal err: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 	w.Write(json)
