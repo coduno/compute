@@ -10,8 +10,7 @@ import (
 )
 
 // SimpleRunHandler is the handler for a simple run
-type SimpleRunHandler struct {
-}
+type SimpleRunHandler struct{}
 
 // Handle function for a simple run. It writes the file with code in
 // the tmp folder and  returns the docker run configuration.

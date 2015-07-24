@@ -4,7 +4,6 @@ import (
 	"encoding/json"
 	"encoding/xml"
 	"io/ioutil"
-	"log"
 	"net/http"
 	"path"
 
@@ -34,9 +33,7 @@ type Failure struct {
 const testResultsFileName = "/build/test-results/TEST-com.coduno.TestApplication.xml"
 
 // JavaUnitTestHandler is the handler for java unit tests
-type JavaUnitTestHandler struct {
-	tmpDir string
-}
+type JavaUnitTestHandler struct{}
 
 // Handle function for Java unit tests. It writes the Application.java file in
 //the tmp folder and  returns the docker run configuration
@@ -65,22 +62,25 @@ func (jut *JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (
 }
 
 // Respond implementation for Java unit tests. Send the JUnit results too.
-func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr docker.Result) {
-	testResult, err := ioutil.ReadFile(path.Join(jut.tmpDir, testResultsFileName))
+func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, res docker.Result) {
+	testResult, err := ioutil.ReadFile(path.Join(res.Volume, testResultsFileName))
 	if err != nil {
-		log.Print(err)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
 	}
 
 	var result UnitTestResult
 	err = xml.Unmarshal(testResult, &result)
-	var toSend = make(map[string]interface{})
-	toSend["run"] = rr.Stdout
-	toSend["err"] = rr.Stderr
-	toSend["tests"] = result
-	json, err := json.Marshal(toSend)
+
+	json, err := json.Marshal(map[string]interface{}{
+		"stdout": string(res.Stdout.Bytes()),
+		"stderr": string(res.Stderr.Bytes()),
+		"tests":  result,
+	})
 	if err != nil {
-		http.Error(w, "Json marshal err: "+err.Error(), http.StatusInternalServerError)
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	w.Write(json)
 }
