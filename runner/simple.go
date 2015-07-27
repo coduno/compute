@@ -4,7 +4,7 @@ import (
 	"encoding/json"
 	"net/http"
 
-	"github.com/coduno/piper/docker"
+	"github.com/coduno/compute/docker"
 )
 
 // SimpleRunHandler is the handler for a simple run

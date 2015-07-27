@@ -15,11 +15,11 @@ import (
 	"google.golang.org/cloud"
 	"google.golang.org/cloud/datastore"
 
-	"github.com/coduno/piper/models"
-	"github.com/coduno/piper/runner"
+	"github.com/coduno/compute/runner"
+	"github.com/coduno/engine/cloud/model"
 )
 
-var ctx context.Context
+var client *http.Client
 
 func init() {
 	user, err := user.Current()
@@ -38,7 +38,11 @@ func init() {
 		panic(err)
 	}
 
-	ctx = cloud.NewContext("coduno", config.Client(oauth2.NoContext))
+	client = config.Client(oauth2.NoContext)
+}
+
+func NewContext() context.Context {
+	return cloud.NewContext("coduno", client)
 }
 
 func main() {
@@ -52,8 +56,8 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 
 	// TODO(victorbalan): Remove this after we can connect with the engine to localhost.
 	// Untill then leave it so we can get entity keys to query for.
-	// q := datastore.NewQuery(models.ChallengeKind).Filter("Runner =", "outputtest")
-	// var challenges []models.Challenge
+	// q := datastore.NewQuery(model.ChallengeKind).Filter("Runner =", "outputtest")
+	// var challenges []model.Challenge
 	// t, _ := q.GetAll(ctx, &challenges)
 	// fmt.Println(t[0])
 	// fmt.Println(t[0].Encode())
@@ -67,8 +71,8 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var challenge models.Challenge
-	err = datastore.Get(ctx, key, &challenge)
+	var challenge model.Challenge
+	err = datastore.Get(NewContext(), key, &challenge)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

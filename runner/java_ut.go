@@ -8,7 +8,7 @@ import (
 	"net/http"
 	"path"
 
-	"github.com/coduno/piper/docker"
+	"github.com/coduno/compute/docker"
 )
 
 // UnitTestResult holds the unit test result created by junit

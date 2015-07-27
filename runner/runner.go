@@ -6,8 +6,7 @@ import (
 	"net/http"
 	"path"
 
-	"github.com/coduno/app/models"
-	"github.com/coduno/piper/docker"
+	"github.com/coduno/compute/docker"
 )
 
 var (
@@ -29,7 +28,14 @@ type RunHandler interface {
 	Respond(w http.ResponseWriter, req *http.Request, res docker.Result)
 }
 
-func getCodeDataFromRequest(r *http.Request) (codeData models.CodeData, err error) {
+// CodeData is the data to receive from the codeground
+type CodeData struct {
+	CodeBase string `json:"codeBase"`
+	Token    string `json:"token"`
+	Language string `json:"language"`
+}
+
+func getCodeDataFromRequest(r *http.Request) (codeData CodeData, err error) {
 	body, err := ioutil.ReadAll(r.Body)
 	if err != nil {
 		return

@@ -5,8 +5,8 @@ import (
 	"net/http"
 	"strings"
 
-	"github.com/coduno/app/util"
-	"github.com/coduno/piper/docker"
+	"github.com/coduno/compute/docker"
+	"github.com/coduno/engine/util"
 )
 
 // OutputTestHandler is the handler for a run with a simple output check
