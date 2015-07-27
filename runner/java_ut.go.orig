@@ -62,8 +62,13 @@ func (jut JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (c
 }
 
 // Respond implementation for Java unit tests. Send the JUnit results too.
+<<<<<<< HEAD
+func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, res docker.Result) {
+	testResult, err := ioutil.ReadFile(path.Join(res.Volume, testResultsFileName))
+=======
 func (jut JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr docker.Result) {
 	testResult, err := ioutil.ReadFile(path.Join(rr.Volume, testResultsFileName))
+>>>>>>> refactor-handlers
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -73,13 +78,14 @@ func (jut JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, r
 	err = xml.Unmarshal(testResult, &result)
 
 	json, err := json.Marshal(map[string]interface{}{
-		"stdout": string(rr.Stdout.Bytes()),
-		"stderr": string(rr.Stderr.Bytes()),
+		"stdout": string(res.Stdout.Bytes()),
+		"stderr": string(res.Stderr.Bytes()),
 		"tests":  result,
 	})
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
+
 	w.Write(json)
 }
