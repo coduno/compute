@@ -34,13 +34,11 @@ type Failure struct {
 const testResultsFileName = "/build/test-results/TEST-com.coduno.TestApplication.xml"
 
 // JavaUnitTestHandler is the handler for java unit tests
-type JavaUnitTestHandler struct {
-	tmpDir string
-}
+type JavaUnitTestHandler struct{}
 
 // Handle function for Java unit tests. It writes the Application.java file in
 //the tmp folder and  returns the docker run configuration
-func (jut *JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
+func (jut JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	// TODO(victorbalan): POST Method check
 
 	codeData, err := getCodeDataFromRequest(r)
@@ -65,8 +63,8 @@ func (jut *JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (
 }
 
 // Respond implementation for Java unit tests. Send the JUnit results too.
-func (jut *JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr docker.Result) {
-	testResult, err := ioutil.ReadFile(path.Join(jut.tmpDir, testResultsFileName))
+func (jut JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr docker.Result) {
+	testResult, err := ioutil.ReadFile(path.Join(rr.Volume, testResultsFileName))
 	if err != nil {
 		log.Print(err)
 	}
