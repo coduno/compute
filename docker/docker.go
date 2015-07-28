@@ -5,6 +5,10 @@ import (
 	"io"
 	"os"
 	"os/exec"
+
+	"google.golang.org/cloud/datastore"
+
+	"github.com/coduno/compute/logger"
 )
 
 const volumePattern string = "coduno-volume"
@@ -12,21 +16,25 @@ const imagePattern string = "coduno/fingerprint-"
 
 // Config holds the configuration needed for a docker run
 type Config struct {
-	Image  string
-	Volume string
+	Image     string
+	Volume    string
+	Code      string
+	Challenge *datastore.Key
+	User      string
 }
 
 // NewConfig constructs a Config to run the specfied image
 // using the given volume.
 // If volume is left blank, NewConfig will take care of
 // creating a temporary directory.
-func NewConfig(image, volume string) (c Config, err error) {
+func NewConfig(image, volume, code string) (c Config, err error) {
 	if volume == "" {
 		volume, err = volumeDir()
 	}
 	c = Config{
-		image,
-		volume,
+		Image:  image,
+		Volume: volume,
+		Code:   code,
 	}
 	return
 }
@@ -40,7 +48,7 @@ type Result struct {
 }
 
 // Run executes a Config and returns associated results.
-func (c Config) Run() (r Result, err error) {
+func (c Config) Run(client *datastore.Client) (r Result, err error) {
 	dockerized, err := dockerize(c.Volume)
 
 	if err != nil {
@@ -63,7 +71,7 @@ func (c Config) Run() (r Result, err error) {
 	if err != nil {
 		return
 	}
-
+	key, rl := logger.LogRunStart(client, c.Challenge, c.Code, c.User)
 	if err = cmd.Start(); err != nil {
 		return
 	}
@@ -71,7 +79,11 @@ func (c Config) Run() (r Result, err error) {
 	go io.Copy(io.MultiWriter(os.Stdout, &r.Stdout), stdout)
 	go io.Copy(io.MultiWriter(os.Stdout, &r.Stderr), stderr)
 
-	cmd.Wait()
+	exitErr := cmd.Wait()
+	logger.LogRunComplete(client, key, rl, exitErr)
+
+	prepLog, stats := logger.GetLogs(c.Volume)
+	logger.LogRunInfo(client, key, "", r.Stdout.String(), r.Stderr.String(), prepLog, stats)
 	return
 }
 
