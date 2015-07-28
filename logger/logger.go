@@ -6,115 +6,119 @@ import (
 	"io/ioutil"
 	"log"
 	"os"
-	"os/user"
-	"path"
 	"syscall"
 	"time"
 
 	"golang.org/x/net/context"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/cloud"
+
 	"google.golang.org/cloud/datastore"
 )
 
-// BuildData is used to represent general data for a single invocation of
+// Rusage is is a copy of syscall.Rusage for Linux.
+// It is needed as syscall.Rusage built on Windows cannot be saved in Datastore
+// because it holds unsigned integers. Runs are executed inside Docker and
+// therefore will always generate this version of syscall.Rusage.
+// See https://godoc.org/google.golang.org/cloud/datastore#Property
+// See https://golang.org/src/syscall/syscall_windows.go
+// See https://golang.org/src/syscall/ztypes_linux_amd64.go
+type Rusage struct {
+	Utime    syscall.Timeval
+	Stime    syscall.Timeval
+	Maxrss   int64
+	Ixrss    int64
+	Idrss    int64
+	Isrss    int64
+	Minflt   int64
+	Majflt   int64
+	Nswap    int64
+	Inblock  int64
+	Oublock  int64
+	Msgsnd   int64
+	Msgrcv   int64
+	Nsignals int64
+	Nvcsw    int64
+	Nivcsw   int64
+}
+
+// RunLog is used to represent general data for a single invocation of
 // a Coduno build
-type BuildData struct {
-	Challenge string
+type RunLog struct {
+	Challenge *datastore.Key
 	User      string
-	Commit    string
+	Code      string
 	Status    string
 	StartTime time.Time
 	EndTime   time.Time
 }
 
-// LogData is used to represent accumulated log data of a single invocation of
+// RunInfo is used to represent accumulated log data of a single invocation of
 // a Coduno build
-type LogData struct {
+type RunInfo struct {
+	RunLog     *datastore.Key
 	InLog      string `datastore:",noindex"`
 	OutLog     string `datastore:",noindex"`
-	ExtraLog   string `datastore:",noindex"`
+	ErrLog     string `datastore:",noindex"`
 	PrepareLog string `datastore:",noindex"`
-	SysUsage   syscall.Rusage
+	SysUsage   Rusage
 }
 
-const buildKind = "builds"
+const runLogKind = "runLog"
+const runInfoKind = "runInfo"
 
-var ctx context.Context
-
-func init() {
-	user, err := user.Current()
-	if err != nil {
-		panic(err)
-	}
-
-	fileName := path.Join(user.HomeDir, "config", "secret.json")
-	secret, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		panic(err)
-	}
-
-	config, err := google.JWTConfigFromJSON(secret, datastore.ScopeDatastore, datastore.ScopeUserEmail)
-	if err != nil {
-		panic(err)
-	}
-
-	ctx = cloud.NewContext("coduno", config.Client(oauth2.NoContext))
-}
-
-// LogBuildStart sends info to the datastore, informing that a new build
+// LogRunStart sends info to Datastore, informing that a new run
 // started
-func LogBuildStart(challenge string, commit string, user string) (*datastore.Key, *BuildData) {
-	key := datastore.NewIncompleteKey(ctx, buildKind, nil)
-	build := &BuildData{challenge, user, commit, "started", time.Now(), time.Unix(0, 0)}
+func LogRunStart(client *datastore.Client, challenge *datastore.Key, code string, user string) (*datastore.Key, *RunLog) {
+	ctx := context.Background()
+	key := datastore.NewIncompleteKey(ctx, runLogKind, nil)
+	log := &RunLog{challenge, user, code, "started", time.Now(), time.Unix(0, 0)}
 
-	key, err := datastore.Put(ctx, key, build)
+	key, err := client.Put(ctx, key, log)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "LogBuildStart: %v", err)
 	}
-	return key, build
+	return key, log
 }
 
-// LogRunComplete logs the end of a completed (failed of finished) run of
+// LogRunComplete logs the end of a completed (failed or finished) run of
 // a coduno testrun
-func LogRunComplete(pKey *datastore.Key, build *BuildData, in,
-	out, extra string, exit error, prepLog string, stats syscall.Rusage) {
-	tx, err := datastore.NewTransaction(ctx)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "LogRunComplete: Could not get transaction!")
-	}
-	build.EndTime = time.Now()
+func LogRunComplete(client *datastore.Client, runLogKey *datastore.Key, log *RunLog, exit error) {
+	ctx := context.Background()
+	log.EndTime = time.Now()
 	if exit != nil {
-		build.Status = "failed"
+		log.Status = "failed"
 	} else {
-		build.Status = "good"
+		log.Status = "good"
 	}
-	_, err = tx.Put(pKey, build)
+	_, err := client.Put(ctx, runLogKey, log)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "LogRunComplete: Putting build failed!")
-		tx.Rollback()
+		fmt.Println(err.Error())
 		return
 	}
-	data := &LogData{in, out, extra, prepLog, stats}
-	k := datastore.NewIncompleteKey(ctx, buildKind, pKey)
-	_, err = tx.Put(k, data)
+}
+
+// LogRunInfo logs info of a completed run
+func LogRunInfo(client *datastore.Client, runLogKey *datastore.Key, in,
+	out, cmdErr, prepLog string, stats Rusage) {
+	ctx := context.Background()
+
+	data := &RunInfo{runLogKey, in, out, cmdErr, prepLog, stats}
+	key := datastore.NewIncompleteKey(ctx, runInfoKind, nil)
+	_, err := client.Put(ctx, key, data)
 	if err != nil {
-		fmt.Fprintf(os.Stderr, "LogRunComplete: Putting data failed!")
-		tx.Rollback()
+		fmt.Println(err.Error())
 		return
 	}
-	tx.Commit()
+
 }
 
 // GetLogs gets the prepare and the stats logs
-func GetLogs(tmpDir string) (string, syscall.Rusage) {
+func GetLogs(tmpDir string) (string, Rusage) {
 	prepLog, err := ioutil.ReadFile(tmpDir + "/prepare.log")
 	if err != nil {
 		log.Print(err)
 	}
 
-	var stats syscall.Rusage
+	var stats Rusage
 	statsData, err := ioutil.ReadFile(tmpDir + "/stats.log")
 	if err != nil {
 		log.Print(err)

@@ -63,7 +63,7 @@ func GeneralHandle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	return
 
 LANGUAGE_AVAILABLE:
-	c, err = docker.NewConfig(docker.NewImage(codeData.Language), "")
+	c, err = docker.NewConfig(docker.NewImage(codeData.Language), "", codeData.CodeBase)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
