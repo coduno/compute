@@ -7,14 +7,19 @@ import (
 	"strings"
 
 	"github.com/coduno/compute/runner"
-	"github.com/coduno/engine/cloud/model"
 	"golang.org/x/net/context"
 	"google.golang.org/cloud/datastore"
 )
 
-var client *datastore.Client
+type CodeTask struct {
+	Runner    string
+	Flags     string
+	Languages []string
+}
 
 const appID = "coduno"
+
+var client *datastore.Client
 
 func init() {
 	var err error
@@ -36,8 +41,8 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 
 	// TODO(victorbalan): Remove this after we can connect with the engine to localhost.
 	// Untill then leave it so we can get entity keys to query for.
-	// q := datastore.NewQuery(model.ChallengeKind).Filter("Runner =", "simple")
 	// var challenges []model.Challenge
+	// q := datastore.NewQuery(model.ChallengeKind).Filter("Runner =", "simple")
 	// t, _ := q.GetAll(NewContext(), &challenges)
 	// fmt.Println(t[0])
 	// fmt.Println(t[0].Encode())
@@ -50,19 +55,19 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var challenge model.Challenge
-	err = client.Get(context.Background(), key, &challenge)
+	var task CodeTask
+	err = client.Get(context.Background(), key, &task)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	f := flag.NewFlagSet("challengeFlags", flag.ContinueOnError)
+	f := flag.NewFlagSet("taskFlags", flag.ContinueOnError)
 	tests := f.String("tests", "", "Defines the tests path")
 	// TODO(victorbalan): Enable the image flage when we will use it
 	// image := f.String("image", "", "Defines a custom image")
 
-	flags := strings.Split(challenge.Flags, " ")
+	flags := strings.Split(task.Flags, " ")
 	if len(flags) > 0 {
 		if err := f.Parse(flags); err != nil {
 			fmt.Printf(err.Error())
@@ -70,7 +75,7 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var rh runner.RunHandler
-	switch challenge.Runner {
+	switch task.Runner {
 	case "simple":
 		rh = runner.SimpleRunHandler{}
 	case "javut":
