@@ -3,46 +3,26 @@ package main
 import (
 	"flag"
 	"fmt"
-	"io/ioutil"
 	"net/http"
-	"os/user"
-	"path"
 	"strings"
-
-	"golang.org/x/net/context"
-	"golang.org/x/oauth2"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/cloud"
-	"google.golang.org/cloud/datastore"
 
 	"github.com/coduno/compute/runner"
 	"github.com/coduno/engine/cloud/model"
+	"golang.org/x/net/context"
+	"google.golang.org/cloud/datastore"
 )
 
-var client *http.Client
+var client *datastore.Client
+
+const appID = "coduno"
 
 func init() {
-	user, err := user.Current()
+	var err error
+	client, err = datastore.NewClient(context.Background(), appID)
+
 	if err != nil {
 		panic(err)
 	}
-
-	fileName := path.Join(user.HomeDir, "config", "secret.json")
-	secret, err := ioutil.ReadFile(fileName)
-	if err != nil {
-		panic(err)
-	}
-
-	config, err := google.JWTConfigFromJSON(secret, datastore.ScopeDatastore, datastore.ScopeUserEmail)
-	if err != nil {
-		panic(err)
-	}
-
-	client = config.Client(oauth2.NoContext)
-}
-
-func NewContext() context.Context {
-	return cloud.NewContext("coduno", client)
 }
 
 func main() {
@@ -56,13 +36,12 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 
 	// TODO(victorbalan): Remove this after we can connect with the engine to localhost.
 	// Untill then leave it so we can get entity keys to query for.
-	// q := datastore.NewQuery(model.ChallengeKind).Filter("Runner =", "outputtest")
+	// q := datastore.NewQuery(model.ChallengeKind).Filter("Runner =", "simple")
 	// var challenges []model.Challenge
-	// t, _ := q.GetAll(ctx, &challenges)
+	// t, _ := q.GetAll(NewContext(), &challenges)
 	// fmt.Println(t[0])
 	// fmt.Println(t[0].Encode())
 	// return
-	// cKey = t[0].Encode()
 
 	key, err := datastore.DecodeKey(encodedKey)
 
@@ -72,7 +51,7 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	var challenge model.Challenge
-	err = datastore.Get(NewContext(), key, &challenge)
+	err = client.Get(context.Background(), key, &challenge)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
@@ -108,10 +87,12 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 	}
 
 	config := rh.Handle(w, req)
+	config.Challenge = key
+	config.User = "receivedUser"
 
 	// TODO(flowlo): Find out whether Handle completed successfully
 	// to check.
-	res, err := config.Run()
+	res, err := config.Run(client)
 
 	if err != nil {
 		http.Error(w, "docker: "+err.Error(), http.StatusInternalServerError)
