@@ -1,7 +1,6 @@
 package runner
 
 import (
-	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"path"
@@ -18,13 +17,20 @@ var (
 	}
 )
 
+type CodeTask struct {
+	Flags,
+	Code,
+	Runner,
+	Language string
+}
+
 // RunHandler is the general handler for the whole workflow.
 // The base setupRunHandler is:
 // - rh.Handle
 // - start docker run
 // - rh.Respond
 type RunHandler interface {
-	Handle(w http.ResponseWriter, r *http.Request) docker.Config
+	Handle(task CodeTask, w http.ResponseWriter, r *http.Request) docker.Config
 	Respond(w http.ResponseWriter, req *http.Request, res docker.Result)
 }
 
@@ -35,27 +41,13 @@ type CodeData struct {
 	Language string `json:"language"`
 }
 
-func getCodeDataFromRequest(r *http.Request) (codeData CodeData, err error) {
-	body, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return
-	}
-	err = json.Unmarshal(body, &codeData)
-	return
-}
-
 // GeneralHandle function for a simple run. It writes the file with code in
 // the tmp folder and  returns the docker run configuration.
-func GeneralHandle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
+func GeneralHandle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	// TODO(victorbalan): POST Method check
 
-	codeData, err := getCodeDataFromRequest(r)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-	}
-
 	for availableLanguage := range fileNames {
-		if codeData.Language == availableLanguage {
+		if task.Language == availableLanguage {
 			goto LANGUAGE_AVAILABLE
 		}
 	}
@@ -63,17 +55,15 @@ func GeneralHandle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	return
 
 LANGUAGE_AVAILABLE:
-	c, err = docker.NewConfig(docker.NewImage(codeData.Language), "", codeData.CodeBase)
+	c, err := docker.NewConfig(docker.NewImage(task.Language), "", task.Code)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	err = ioutil.WriteFile(path.Join(c.Volume, fileNames[codeData.Language]), []byte(codeData.CodeBase), 0777)
-	if err != nil {
+	fileName := path.Join(c.Volume, fileNames[task.Language])
+	if err := ioutil.WriteFile(fileName, []byte(task.Code), 0777); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
-
 	return
 }

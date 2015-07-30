@@ -37,25 +37,18 @@ type JavaUnitTestHandler struct{}
 
 // Handle function for Java unit tests. It writes the Application.java file in
 //the tmp folder and  returns the docker run configuration
-func (jut JavaUnitTestHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
+func (jut JavaUnitTestHandler) Handle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
 	// TODO(victorbalan): POST Method check
 
-	codeData, err := getCodeDataFromRequest(r)
+	c, err := docker.NewConfig(docker.NewImage(task.Language), "", task.Code)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
 
-	c, err = docker.NewConfig(docker.NewImage(codeData.Language), "", codeData.CodeBase)
-	if err != nil {
+	fileName := path.Join(c.Volume, "Application.java")
+	if err := ioutil.WriteFile(fileName, []byte(task.Code), 0777); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	err = ioutil.WriteFile(path.Join(c.Volume, "Application.java"), []byte(codeData.CodeBase), 0777)
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
 	}
 
 	return

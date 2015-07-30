@@ -12,8 +12,8 @@ type SimpleRunHandler struct{}
 
 // Handle function for a simple run. It writes the file with code in
 // the tmp folder and  returns the docker run configuration.
-func (srh SimpleRunHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
-	return GeneralHandle(w, r)
+func (srh SimpleRunHandler) Handle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
+	return GeneralHandle(task, w, r)
 }
 
 // Respond implementation for a simple run. It returns the run output and the

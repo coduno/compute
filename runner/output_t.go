@@ -16,8 +16,8 @@ type OutputTestHandler struct {
 
 // Handle function for an output test run. It writes the file with code in
 // the tmp folder and  returns the docker run configuration.
-func (oth OutputTestHandler) Handle(w http.ResponseWriter, r *http.Request) (c docker.Config) {
-	return GeneralHandle(w, r)
+func (oth OutputTestHandler) Handle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
+	return GeneralHandle(task, w, r)
 }
 
 // Respond implementation for an output test run. It returns the number of

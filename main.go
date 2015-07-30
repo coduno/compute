@@ -1,6 +1,7 @@
 package main
 
 import (
+	"encoding/json"
 	"flag"
 	"fmt"
 	"net/http"
@@ -10,12 +11,6 @@ import (
 	"golang.org/x/net/context"
 	"google.golang.org/cloud/datastore"
 )
-
-type CodeTask struct {
-	Runner    string
-	Flags     string
-	Languages []string
-}
 
 const appID = "coduno"
 
@@ -35,29 +30,9 @@ func main() {
 	http.ListenAndServe(":8081", nil)
 }
 
-func startHandler(w http.ResponseWriter, req *http.Request) {
-	cors(w, req)
-	encodedKey := req.URL.Path[1:]
-
-	// TODO(victorbalan): Remove this after we can connect with the engine to localhost.
-	// Untill then leave it so we can get entity keys to query for.
-	// var challenges []model.Challenge
-	// q := datastore.NewQuery(model.ChallengeKind).Filter("Runner =", "simple")
-	// t, _ := q.GetAll(NewContext(), &challenges)
-	// fmt.Println(t[0])
-	// fmt.Println(t[0].Encode())
-	// return
-
-	key, err := datastore.DecodeKey(encodedKey)
-
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-
-	var task CodeTask
-	err = client.Get(context.Background(), key, &task)
-	if err != nil {
+func startHandler(w http.ResponseWriter, r *http.Request) {
+	var task runner.CodeTask
+	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
@@ -91,8 +66,7 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	config := rh.Handle(w, req)
-	config.Challenge = key
+	config := rh.Handle(task, w, r)
 	config.User = "receivedUser"
 
 	// TODO(flowlo): Find out whether Handle completed successfully
@@ -103,23 +77,5 @@ func startHandler(w http.ResponseWriter, req *http.Request) {
 		http.Error(w, "docker: "+err.Error(), http.StatusInternalServerError)
 	}
 
-	rh.Respond(w, req, res)
-}
-
-// Rudimentary CORS checking. See
-// https://developer.mozilla.org/docs/Web/HTTP/Access_control_CORS
-func cors(w http.ResponseWriter, req *http.Request) {
-	origin := req.Header.Get("Origin")
-
-	// only allow CORS on localhost for development
-	if strings.HasPrefix(origin, "http://localhost") {
-		// The cookie related headers are used for the api requests authentication
-		w.Header().Set("Access-Control-Allow-Methods", "OPTIONS, GET, POST, PUT, DELETE, PATCH")
-		w.Header().Set("Access-Control-Allow-Headers", "Cookie, Content-Type")
-		w.Header().Set("Access-Control-Allow-Credentials", "true")
-		w.Header().Set("Access-Control-Allow-Origin", origin)
-		if req.Method == "OPTIONS" {
-			w.Write([]byte("OK"))
-		}
-	}
+	rh.Respond(w, r, res)
 }
