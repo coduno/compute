@@ -5,6 +5,7 @@ import (
 	"encoding/xml"
 	"io/ioutil"
 	"net/http"
+	"os"
 	"path"
 
 	"github.com/coduno/compute/docker"
@@ -32,13 +33,10 @@ type Failure struct {
 
 const testResultsFileName = "/build/test-results/TEST-com.coduno.TestApplication.xml"
 
-// JavaUnitTestHandler is the handler for java unit tests
-type JavaUnitTestHandler struct{}
-
 // Handle function for Java unit tests. It writes the Application.java file in
 //the tmp folder and  returns the docker run configuration
-func (jut JavaUnitTestHandler) Handle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
-	// TODO(victorbalan): POST Method check
+func JavaUnitTest(w http.ResponseWriter, r *http.Request) {
+	task := decode(w, r)
 
 	c, err := docker.NewConfig(docker.NewImage(task.Language), "", task.Code)
 	if err != nil {
@@ -51,28 +49,16 @@ func (jut JavaUnitTestHandler) Handle(task CodeTask, w http.ResponseWriter, r *h
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 	}
 
-	return
-}
+	rr, err := c.Run()
 
-// Respond implementation for Java unit tests. Send the JUnit results too.
-func (jut JavaUnitTestHandler) Respond(w http.ResponseWriter, r *http.Request, rr docker.Result) {
-	testResult, err := ioutil.ReadFile(path.Join(rr.Volume, testResultsFileName))
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
+	var tests UnitTestResult
+	fd, _ := os.Open(path.Join(rr.Volume, testResultsFileName))
+	xml.NewDecoder(fd).Decode(&tests)
 
-	var result UnitTestResult
-	err = xml.Unmarshal(testResult, &result)
-
-	json, err := json.Marshal(map[string]interface{}{
-		"stdout": string(rr.Stdout.Bytes()),
-		"stderr": string(rr.Stderr.Bytes()),
-		"tests":  result,
+	json.NewEncoder(w).Encode(struct {
+		docker.Result
+		Tests UnitTestResult
+	}{
+		Result: *rr, Tests: tests,
 	})
-	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
-		return
-	}
-	w.Write(json)
 }
