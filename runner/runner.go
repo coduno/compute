@@ -1,6 +1,7 @@
 package runner
 
 import (
+	"encoding/json"
 	"io/ioutil"
 	"net/http"
 	"path"
@@ -18,34 +19,25 @@ var (
 )
 
 type CodeTask struct {
-	Flags,
-	Code,
-	Runner,
-	Language string
+	Flags, Code, Runner, Language string
 }
 
-// RunHandler is the general handler for the whole workflow.
-// The base setupRunHandler is:
-// - rh.Handle
-// - start docker run
-// - rh.Respond
-type RunHandler interface {
-	Handle(task CodeTask, w http.ResponseWriter, r *http.Request) docker.Config
-	Respond(w http.ResponseWriter, req *http.Request, res docker.Result)
+func decode(w http.ResponseWriter, r *http.Request) *CodeTask {
+	if r.Method != "POST" {
+		w.Header().Set("Allow", "POST")
+		http.Error(w, http.StatusText(http.StatusMethodNotAllowed), http.StatusMethodNotAllowed)
+		return nil
+	}
+
+	var task CodeTask
+	if err := json.NewDecoder(r.Body).Decode(&task); err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return nil
+	}
+	return &task
 }
 
-// CodeData is the data to receive from the codeground
-type CodeData struct {
-	CodeBase string `json:"codeBase"`
-	Token    string `json:"token"`
-	Language string `json:"language"`
-}
-
-// GeneralHandle function for a simple run. It writes the file with code in
-// the tmp folder and  returns the docker run configuration.
-func GeneralHandle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
-	// TODO(victorbalan): POST Method check
-
+func check(task *CodeTask, w http.ResponseWriter) (c *docker.Config) {
 	for availableLanguage := range fileNames {
 		if task.Language == availableLanguage {
 			goto LANGUAGE_AVAILABLE

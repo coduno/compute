@@ -2,36 +2,65 @@ package docker
 
 import (
 	"bytes"
+	"encoding/json"
 	"io"
+	"io/ioutil"
 	"os"
 	"os/exec"
+	"path"
+	"syscall"
+	"time"
 
 	"google.golang.org/cloud/datastore"
-
-	"github.com/coduno/compute/logger"
 )
-
-const volumePattern string = "coduno-volume"
-const imagePattern string = "coduno/fingerprint-"
 
 // Config holds the configuration needed for a docker run
 type Config struct {
-	Image     string
-	Volume    string
-	Code      string
+	Image,
+	Volume,
+	Code,
+	User string
 	Challenge *datastore.Key
-	User      string
 }
+
+// Rusage is is a copy of syscall.Rusage for Linux.
+// It is needed as syscall.Rusage built on Windows cannot be saved in Datastore
+// because it holds unsigned integers. Runs are executed inside Docker and
+// therefore will always generate this version of syscall.Rusage.
+// See https://godoc.org/google.golang.org/cloud/datastore#Property
+// See https://golang.org/src/syscall/syscall_windows.go
+// See https://golang.org/src/syscall/ztypes_linux_amd64.go
+type Rusage struct {
+	Utime,
+	Stime syscall.Timeval
+	Maxrss,
+	Ixrss,
+	Idrss,
+	Isrss,
+	Minflt,
+	Majflt,
+	Nswap,
+	Inblock,
+	Oublock,
+	Msgsnd,
+	Msgrcv,
+	Nsignals,
+	Nvcsw,
+	Nivcsw int64
+}
+
+const volumePattern string = "coduno-volume"
+const imagePattern string = "coduno/fingerprint-"
 
 // NewConfig constructs a Config to run the specfied image
 // using the given volume.
 // If volume is left blank, NewConfig will take care of
 // creating a temporary directory.
-func NewConfig(image, volume, code string) (c Config, err error) {
+func NewConfig(image, volume, code string) (c *Config, err error) {
 	if volume == "" {
 		volume, err = volumeDir()
 	}
-	c = Config{
+	c = &Config{
 		Image:  image,
 		Volume: volume,
 		Code:   code,
@@ -43,12 +72,17 @@ func NewConfig(image, volume, code string) (c Config, err error) {
 // of a Config that was run.
 type Result struct {
 	Config
-	Stdout bytes.Buffer
-	Stderr bytes.Buffer
+	Stdout     string
+	Stderr     string
+	Rusage     Rusage
+	Prepare    string
+	Exit       error
+	Start, End time.Time
 }
 
 // Run executes a Config and returns associated results.
-func (c Config) Run(client *datastore.Client) (r Result, err error) {
+func (c *Config) Run() (r *Result, err error) {
+	r = new(Result)
 	dockerized, err := dockerize(c.Volume)
 
 	if err != nil {
@@ -60,7 +94,8 @@ func (c Config) Run(client *datastore.Client) (r Result, err error) {
 		"run",
 		"-v",
 		dockerized+":/run",
-		c.Image)
+		c.Image,
+	)
 
 	stdout, err := cmd.StdoutPipe()
 	if err != nil {
@@ -71,19 +106,25 @@ func (c Config) Run(client *datastore.Client) (r Result, err error) {
 	if err != nil {
 		return
 	}
-	key, rl := logger.LogRunStart(client, c.Challenge, c.Code, c.User)
+	r.Start = time.Now()
 	if err = cmd.Start(); err != nil {
 		return
 	}
 
-	go io.Copy(io.MultiWriter(os.Stdout, &r.Stdout), stdout)
-	go io.Copy(io.MultiWriter(os.Stdout, &r.Stderr), stderr)
+	bufout, buferr := new(bytes.Buffer), new(bytes.Buffer)
 
-	exitErr := cmd.Wait()
-	logger.LogRunComplete(client, key, rl, exitErr)
+	go io.Copy(io.MultiWriter(os.Stdout, bufout), stdout)
+	go io.Copy(io.MultiWriter(os.Stdout, buferr), stderr)
 
-	prepLog, stats := logger.GetLogs(c.Volume)
-	logger.LogRunInfo(client, key, "", r.Stdout.String(), r.Stderr.String(), prepLog, stats)
+	r.Exit = cmd.Wait()
+	r.End = time.Now()
+	r.Stdout = bufout.String()
+	r.Stderr = buferr.String()
+	b, err := ioutil.ReadFile(path.Join(c.Volume, "prepare.log"))
+	r.Prepare = string(b)
+
+	stats, err := os.Open(path.Join(c.Volume, "stats.log"))
+	json.NewDecoder(stats).Decode(&r.Rusage)
 	return
 }
 

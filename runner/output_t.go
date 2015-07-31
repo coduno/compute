@@ -1,59 +1,65 @@
 package runner
 
 import (
+	"encoding/json"
+	"flag"
+	"fmt"
 	"io/ioutil"
 	"net/http"
 	"strings"
 
 	"github.com/coduno/compute/docker"
-	"github.com/coduno/engine/util"
 )
-
-// OutputTestHandler is the handler for a run with a simple output check
-type OutputTestHandler struct {
-	TestFilePath string
-}
 
 // Handle function for an output test run. It writes the file with code in
 // the tmp folder and  returns the docker run configuration.
-func (oth OutputTestHandler) Handle(task CodeTask, w http.ResponseWriter, r *http.Request) (c docker.Config) {
-	return GeneralHandle(task, w, r)
-}
+func OutputTest(w http.ResponseWriter, r *http.Request) {
+	task := decode(w, r)
+	config := check(task, w)
+	f := flag.NewFlagSet("taskFlags", flag.ContinueOnError)
+	tests := f.String("tests", "", "Defines the tests path")
 
-// Respond implementation for an output test run. It returns the number of
-// different lines between the user output, the user output and the test
-// output.
-func (oth OutputTestHandler) Respond(w http.ResponseWriter, req *http.Request, res docker.Result) {
-	buf, err := ioutil.ReadFile(oth.TestFilePath)
+	// TODO(victorbalan): Enable the image flage when we will use it
+	// image := f.String("image", "", "Defines a custom image")
+
+	flags := strings.Split(task.Flags, " ")
+	if len(flags) > 0 {
+		if err := f.Parse(flags); err != nil {
+			fmt.Printf(err.Error())
+		}
+	}
+
+	if *tests == "" {
+		http.Error(w, "There is no test path provided", http.StatusBadRequest)
+		return
+	}
+
+	res, err := config.Run()
+
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	test := strings.Split(string(buf), "\n")
-	cmdErr := res.Stderr.String()
 
-	if cmdErr != "" {
-		util.WriteMap(w, map[string]interface{}{
-			"stderr": cmdErr,
-		})
+	// FIXME(flowlo): Do this in init()
+	b, err := ioutil.ReadFile(*tests)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	userOut := strings.Split(res.Stdout.String(), "\n")
-	if len(test) != len(userOut) {
-		util.WriteMap(w, map[string]interface{}{
-			"stdout": res.Stdout.String(),
-		})
-		return
-	}
-
+	test := strings.Split(string(b), "\n")
+	userOut := strings.Split(res.Stdout, "\n")
 	var diffLines []int
 	for i := 0; i < len(userOut); i++ {
 		if userOut[i] != test[i] {
 			diffLines = append(diffLines, i)
 		}
 	}
-	util.WriteMap(w, map[string]interface{}{
-		"stdout":    string(res.Stdout.Bytes()),
-		"diffLines": diffLines,
+
+	json.NewEncoder(w).Encode(struct {
+		docker.Result
+		DiffLines []int
+	}{
+		Result: *res, DiffLines: diffLines,
 	})
 }
