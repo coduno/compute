@@ -76,7 +76,7 @@ type Result struct {
 	Stderr     string
 	Rusage     Rusage
 	Prepare    string
-	Exit       error
+	Exit       string
 	Start, End time.Time
 }
 
@@ -116,7 +116,10 @@ func (c *Config) Run() (r *Result, err error) {
 	go io.Copy(io.MultiWriter(os.Stdout, bufout), stdout)
 	go io.Copy(io.MultiWriter(os.Stdout, buferr), stderr)
 
-	r.Exit = cmd.Wait()
+	err = cmd.Wait()
+	if err != nil {
+		r.Exit = err.Error()
+	}
 	r.End = time.Now()
 	r.Stdout = bufout.String()
 	r.Stderr = buferr.String()
