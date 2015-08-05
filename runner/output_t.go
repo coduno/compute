@@ -42,12 +42,18 @@ func OutputTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FIXME(flowlo): Do this in init()
-	b, err := ioutil.ReadFile(*tests)
+	testReader, err := fetchTestFile(*tests)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
 	}
-	test := strings.Split(string(b), "\n")
+	testFile, err := ioutil.ReadAll(testReader)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	test := strings.Split(string(testFile), "\n")
 	userOut := strings.Split(res.Stdout, "\n")
 	var diffLines []int
 	for i := 0; i < len(userOut); i++ {
