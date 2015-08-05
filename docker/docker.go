@@ -123,10 +123,10 @@ func (c *Config) Run() (r *Result, err error) {
 	r.End = time.Now()
 	r.Stdout = bufout.String()
 	r.Stderr = buferr.String()
-	b, err := ioutil.ReadFile(path.Join(c.Volume, "prepare.log"))
+	b, _ := ioutil.ReadFile(path.Join(c.Volume, "prepare.log"))
 	r.Prepare = string(b)
 
-	stats, err := os.Open(path.Join(c.Volume, "stats.log"))
+	stats, _ := os.Open(path.Join(c.Volume, "stats.log"))
 	json.NewDecoder(stats).Decode(&r.Rusage)
 	return
 }
