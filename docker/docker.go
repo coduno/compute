@@ -82,7 +82,7 @@ type Result struct {
 
 // Run executes a Config and returns associated results.
 func (c *Config) Run() (r *Result, err error) {
-	r = new(Result)
+	r = &Result{Config: *c}
 	dockerized, err := dockerize(c.Volume)
 
 	if err != nil {
