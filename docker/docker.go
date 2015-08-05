@@ -116,9 +116,9 @@ func (c *Config) Run() (r *Result, err error) {
 	go io.Copy(io.MultiWriter(os.Stdout, bufout), stdout)
 	go io.Copy(io.MultiWriter(os.Stdout, buferr), stderr)
 
-	err = cmd.Wait()
-	if err != nil {
-		r.Exit = err.Error()
+	cmdErr := cmd.Wait()
+	if cmdErr != nil {
+		r.Exit = cmdErr.Error()
 	}
 	r.End = time.Now()
 	r.Stdout = bufout.String()
