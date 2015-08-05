@@ -13,10 +13,10 @@ import (
 
 // UnitTestResult holds the unit test result created by junit
 type UnitTestResult struct {
-	Tests    string   `xml:"tests,attr"`
-	Failures string   `xml:"failures,attr"`
-	Errors   string   `xml:"errors,attr"`
-	TestCase TestCase `xml:"testcase"`
+	Tests    string     `xml:"tests,attr"`
+	Failures string     `xml:"failures,attr"`
+	Errors   string     `xml:"errors,attr"`
+	TestCase []TestCase `xml:"testcase"`
 }
 
 // TestCase holds a test case created by junit
@@ -54,7 +54,7 @@ func JavaUnitTest(w http.ResponseWriter, r *http.Request) {
 	var tests UnitTestResult
 	fd, err := os.Open(path.Join(rr.Volume, testResultsFileName))
 	if err != nil {
-		http.Error(w, err.Error(), http.StatusInternalServerError)
+		json.NewEncoder(w).Encode(rr)
 		return
 	}
 	xml.NewDecoder(fd).Decode(&tests)
