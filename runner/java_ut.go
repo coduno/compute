@@ -71,7 +71,7 @@ func JavaUnitTest(w http.ResponseWriter, r *http.Request) {
 	os.MkdirAll(testFilePath, 777)
 
 	testFile := path.Join(testFilePath, "TestApplication.java")
-	testReader, err := fetchTestFile(*testsFlag)
+	testReader, err := OpenTestFile(*testsFlag)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

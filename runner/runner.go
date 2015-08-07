@@ -9,8 +9,7 @@ import (
 	"path"
 
 	"golang.org/x/net/context"
-	"golang.org/x/oauth2/google"
-	"google.golang.org/api/storage/v1"
+	"google.golang.org/cloud/storage"
 
 	"github.com/coduno/compute/docker"
 )
@@ -25,42 +24,51 @@ var (
 )
 
 type CodeTask struct {
-	Flags, Code, Runner, Language string
+	Flags, Code, Language string
 }
 
 const codunoComputeStorage = "CODUNO_COMPUTE_STORAGE"
+const bucket = "task_tests"
 
-func fetchTestFile(objectName string) (reader io.ReadCloser, err error) {
-	localStorage := os.Getenv(codunoComputeStorage)
-	if localStorage == "" {
-		bucketName := "task_tests"
-		var client *http.Client
-		if client, err = google.DefaultClient(context.Background(), storage.DevstorageReadOnlyScope); err != nil {
-			return
-		}
+var cache string
 
-		var service *storage.Service
-		if service, err = storage.New(client); err != nil {
-			return
-		}
+func init() {
+	var err error
 
-		var res *storage.Object
-		if res, err = service.Objects.Get(bucketName, objectName).Do(); err != nil {
-			return
-		}
-
-		var fileDld *http.Response
-		if fileDld, err = client.Get(res.MediaLink); err != nil {
-			return
-		}
-		// TODO(victorbalan): Put in memcache
-		io.Copy(os.Stdout, fileDld.Body)
-		return fileDld.Body, nil
-	}
-	if reader, err = os.Open(path.Join(localStorage, objectName)); err != nil {
+	if cache = os.Getenv(codunoComputeStorage); cache != "" {
+		// TODO(flowlo): Maybe check if we can even read/write from/to that directory.
 		return
 	}
-	return
+
+	if cache, err = ioutil.TempDir("", "coduno-compute-cache-"); err != nil {
+		panic(err)
+	}
+}
+
+// OpenTestFile is like os.Open but for accessing test files.
+func OpenTestFile(name string) (io.Reader, error) {
+	fn := path.Join(cache, name)
+
+	f, err := os.Open(fn)
+	if err == nil {
+		return f, nil
+	}
+
+	if err != os.ErrNotExist {
+		return nil, err
+	}
+
+	rc, err := storage.NewReader(context.Background(), bucket, name)
+	if err != nil {
+		return nil, err
+	}
+
+	w, err := os.OpenFile(fn, os.O_CREATE|os.O_WRONLY|os.O_EXCL, os.ModeTemporary)
+	if err != nil {
+		return nil, err
+	}
+
+	return io.TeeReader(rc, w), nil
 }
 
 func decode(w http.ResponseWriter, r *http.Request) *CodeTask {
