@@ -42,7 +42,7 @@ func OutputTest(w http.ResponseWriter, r *http.Request) {
 	}
 
 	// FIXME(flowlo): Do this in init()
-	testReader, err := fetchTestFile(*tests)
+	testReader, err := OpenTestFile(*tests)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return
