@@ -72,6 +72,7 @@ func JavaUnitTest(w http.ResponseWriter, r *http.Request) {
 
 	testFile := path.Join(testFilePath, "TestApplication.java")
 	testReader, err := OpenTestFile(*testsFlag)
+	defer testReader.Close()
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusInternalServerError)
 		return

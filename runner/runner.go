@@ -46,7 +46,7 @@ func init() {
 }
 
 // OpenTestFile is like os.Open but for accessing test files.
-func OpenTestFile(name string) (io.Reader, error) {
+func OpenTestFile(name string) (io.ReadCloser, error) {
 	fn := path.Join(cache, name)
 
 	f, err := os.Open(fn)
@@ -68,7 +68,10 @@ func OpenTestFile(name string) (io.Reader, error) {
 		return nil, err
 	}
 
-	return io.TeeReader(rc, w), nil
+	pr, pw := io.Pipe()
+	go io.Copy(io.MultiWriter(pw, w), rc)
+
+	return pr, nil
 }
 
 func decode(w http.ResponseWriter, r *http.Request) *CodeTask {
